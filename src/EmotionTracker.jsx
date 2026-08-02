@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
+import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
+import { auth, db, googleProvider } from './firebase';
 
 const VB_W = 1000;
 const VB_H = 380;
@@ -19,7 +22,19 @@ function daysInMonth(year, month) {
 }
 
 function monthKey(year, month) {
-  return `entries:${year}-${String(month + 1).padStart(2, '0')}`;
+  return `${year}-${String(month + 1).padStart(2, '0')}`;
+}
+
+function localMonthKey(year, month) {
+  return `entries:${monthKey(year, month)}`;
+}
+
+function normalizeEntries(value) {
+  return Object.fromEntries(
+    Object.entries(value || {})
+      .map(([day, rating]) => [String(Number(day)), Number(rating)])
+      .filter(([day, rating]) => Number(day) >= 1 && Number(day) <= 31 && rating >= 1 && rating <= 10),
+  );
 }
 
 function xForDay(day, total) {
@@ -81,6 +96,10 @@ export default function EmotionTracker() {
   const [month, setMonth] = useState(today.getMonth());
   const [entries, setEntries] = useState({});
   const [loading, setLoading] = useState(true);
+  const [user, setUser] = useState(null);
+  const [authReady, setAuthReady] = useState(false);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [syncStatus, setSyncStatus] = useState('Local mode');
   const [selectedDay, setSelectedDay] = useState(null);
   const [exporting, setExporting] = useState(false);
   const svgRef = useRef(null);
@@ -89,33 +108,64 @@ export default function EmotionTracker() {
   const total = daysInMonth(year, month);
   const isCurrentMonth = year === today.getFullYear() && month === today.getMonth();
 
+  useEffect(() => onAuthStateChanged(auth, (nextUser) => {
+    setUser(nextUser);
+    setAuthReady(true);
+  }), []);
+
   useEffect(() => {
+    if (!authReady) return undefined;
     let cancelled = false;
     setLoading(true);
     setSelectedDay(null);
     (async () => {
       try {
-        const key = monthKey(year, month);
-        const result = await window.storage.get(key, false);
-        if (!cancelled) setEntries(result ? JSON.parse(result.value) : {});
+        if (user) {
+          const snap = await getDoc(doc(db, 'users', user.uid, 'emotionMonths', monthKey(year, month)));
+          if (!cancelled) {
+            setEntries(snap.exists() ? normalizeEntries(snap.data().entries) : {});
+            setSyncStatus('Synced with Firestore');
+          }
+        } else {
+          const raw = window.localStorage.getItem(localMonthKey(year, month));
+          if (!cancelled) {
+            setEntries(raw ? normalizeEntries(JSON.parse(raw)) : {});
+            setSyncStatus('Saved on this device');
+          }
+        }
       } catch (e) {
-        if (!cancelled) setEntries({});
+        if (!cancelled) {
+          setEntries({});
+          setSyncStatus('Unable to load saved data');
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [year, month]);
+  }, [authReady, user, year, month]);
 
   useEffect(() => {
-    if (loading) return;
-    const key = monthKey(year, month);
-    const data = entries;
-    const handle = setTimeout(() => {
-      window.storage.set(key, JSON.stringify(data), false).catch(() => {});
+    if (loading || !authReady) return undefined;
+    const data = normalizeEntries(entries);
+    const handle = setTimeout(async () => {
+      try {
+        if (user) {
+          await setDoc(doc(db, 'users', user.uid, 'emotionMonths', monthKey(year, month)), {
+            entries: data,
+            updatedAt: serverTimestamp(),
+          }, { merge: true });
+          setSyncStatus('Synced with Firestore');
+        } else {
+          window.localStorage.setItem(localMonthKey(year, month), JSON.stringify(data));
+          setSyncStatus('Saved on this device');
+        }
+      } catch (e) {
+        setSyncStatus('Sync failed — changes kept on screen');
+      }
     }, 350);
     return () => clearTimeout(handle);
-  }, [entries, year, month, loading]);
+  }, [entries, year, month, loading, authReady, user]);
 
   useEffect(() => {
     if (selectedDay === null) return;
@@ -179,6 +229,24 @@ export default function EmotionTracker() {
     const rating = Number(e.target.value);
     setEntries(prev => ({ ...prev, [selectedDay]: rating }));
   }, [selectedDay]);
+
+  const signIn = useCallback(async () => {
+    setAuthBusy(true);
+    try {
+      await signInWithPopup(auth, googleProvider);
+    } finally {
+      setAuthBusy(false);
+    }
+  }, []);
+
+  const signOutUser = useCallback(async () => {
+    setAuthBusy(true);
+    try {
+      await signOut(auth);
+    } finally {
+      setAuthBusy(false);
+    }
+  }, []);
 
   const clearSelected = useCallback(() => {
     if (selectedDay === null) return;
@@ -283,9 +351,9 @@ export default function EmotionTracker() {
         .et-slider::-moz-range-thumb { width: 20px; height: 20px; border-radius: 50%; background: #FFFFFF; border: 3px solid #000000; box-shadow: 0 0 0 1.5px #FFFFFF; cursor: pointer; }
         .et-slider:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 1.5px #FFFFFF, 0 0 0 5px rgba(255,255,255,0.25); }
         .et-export-btn { transition: background 0.15s ease, color 0.15s ease; }
-        .et-export-btn:hover:not(:disabled) { background: #FFFFFF; color: #000000; }
-        .et-export-btn:disabled { opacity: 0.5; cursor: default; }
-        .et-export-btn:focus-visible { outline: 2px solid #FFFFFF; outline-offset: 2px; }
+        .et-export-btn:hover:not(:disabled), .et-login-btn:hover:not(:disabled) { background: #FFFFFF; color: #000000; }
+        .et-export-btn:disabled, .et-login-btn:disabled { opacity: 0.5; cursor: default; }
+        .et-export-btn:focus-visible, .et-login-btn:focus-visible { outline: 2px solid #FFFFFF; outline-offset: 2px; }
         .et-clear-btn:hover { opacity: 0.6; }
         .et-close-btn:hover { opacity: 0.5; }
         .et-close-btn:focus-visible, .et-clear-btn:focus-visible { outline: 2px solid #FFFFFF; outline-offset: 2px; }
@@ -300,6 +368,9 @@ export default function EmotionTracker() {
             <div style={styles.title}>{MONTH_NAMES[month]} {year}</div>
           </div>
           <div style={styles.navGroup}>
+            <button className="et-login-btn" style={styles.loginBtn} onClick={user ? signOutUser : signIn} disabled={!authReady || authBusy}>
+              {user ? 'SIGN OUT' : 'GOOGLE LOGIN'}
+            </button>
             <button className="et-nav-btn" style={styles.navBtn} onClick={goPrev} aria-label="Previous month">‹</button>
             <button className="et-nav-btn" style={styles.navBtn} onClick={goNext} aria-label="Next month">›</button>
           </div>
@@ -309,6 +380,7 @@ export default function EmotionTracker() {
           <span>
             <span>{loggedCount}/{total} DAYS LOGGED</span>
             {avg && <span style={{ marginLeft: 14 }}>AVG {avg}</span>}
+            <span style={{ marginLeft: 14 }}>{syncStatus}</span>
           </span>
           <button
             className="et-export-btn"
@@ -479,10 +551,11 @@ const styles = {
   header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: 6 },
   eyebrow: { fontSize: 12, letterSpacing: '0.1em', textTransform: 'uppercase', color: '#FFFFFF', marginBottom: 4, fontWeight: 600 },
   title: { fontSize: 28, fontWeight: 700, color: '#FFFFFF', letterSpacing: '-0.02em' },
-  navGroup: { display: 'flex', gap: 8 },
+  navGroup: { display: 'flex', gap: 8, alignItems: 'center' },
   navBtn: { width: 34, height: 34, borderRadius: 0, border: '1.5px solid #FFFFFF', background: 'transparent', fontSize: 18, color: '#FFFFFF', cursor: 'pointer' },
   statsRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 11, letterSpacing: '0.06em', color: '#FFFFFF', marginBottom: 18, fontWeight: 500 },
   exportBtn: { fontSize: 10, letterSpacing: '0.08em', fontWeight: 600, color: '#FFFFFF', background: 'transparent', border: '1.5px solid #FFFFFF', borderRadius: 0, padding: '6px 10px', cursor: 'pointer' },
+  loginBtn: { fontSize: 10, letterSpacing: '0.08em', fontWeight: 700, color: '#FFFFFF', background: 'transparent', border: '1.5px solid #FFFFFF', borderRadius: 0, padding: '9px 10px', cursor: 'pointer' },
   svg: { width: '100%', height: 'auto', display: 'block' },
   axisLabel: { fontSize: 10, fill: '#8C8C8C', fontWeight: 500 },
   chipLabel: { fontSize: 11, fill: '#000000', fontWeight: 700 },
