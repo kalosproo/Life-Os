@@ -60,16 +60,27 @@ function yForRating(rating) {
 function buildSmoothPath(points) {
   if (points.length < 2) return '';
   let d = `M ${points[0].x} ${points[0].y}`;
-  for (let i = 1; i < points.length; i++) {
-    const prev = points[i - 1];
+  for (let i = 0; i < points.length - 1; i++) {
+    const prev = points[i - 1] || points[i];
     const curr = points[i];
-    const midX = (prev.x + curr.x) / 2;
-    const midY = (prev.y + curr.y) / 2;
-    d += ` Q ${prev.x} ${prev.y} ${midX} ${midY}`;
+    const next = points[i + 1];
+    const after = points[i + 2] || next;
+    const cp1x = curr.x + (next.x - prev.x) / 6;
+    const cp1y = curr.y + (next.y - prev.y) / 6;
+    const cp2x = next.x - (after.x - curr.x) / 6;
+    const cp2y = next.y - (after.y - curr.y) / 6;
+    d += ` C ${cp1x} ${cp1y} ${cp2x} ${cp2y} ${next.x} ${next.y}`;
   }
-  const last = points[points.length - 1];
-  d += ` L ${last.x} ${last.y}`;
   return d;
+}
+
+function buildAreaPath(points) {
+  if (points.length < 2) return '';
+  const baseline = PAD_T + CHART_H;
+  const linePath = buildSmoothPath(points);
+  const first = points[0];
+  const last = points[points.length - 1];
+  return `${linePath} L ${last.x} ${baseline} L ${first.x} ${baseline} Z`;
 }
 
 function groupConsecutive(days, entries) {
@@ -431,11 +442,25 @@ export default function EmotionTracker() {
               </>
             )}
 
+            {segments.map((seg, i) => {
+              const points = seg.map(d => ({ x: xForDay(d, total), y: yForRating(entryRating(entries[d])) }));
+              if (points.length < 2) return null;
+              return (
+                <path
+                  key={`area${i}`}
+                  d={buildAreaPath(points)}
+                  fill="#FFFFFF"
+                  fillOpacity={0.12}
+                  stroke="none"
+                />
+              );
+            })}
+
             {segments.map((seg, i) => (
               <path
                 key={i}
                 d={buildSmoothPath(seg.map(d => ({ x: xForDay(d, total), y: yForRating(entryRating(entries[d])) })))}
-                fill="none" stroke="#FFFFFF" strokeWidth={2.5} strokeLinecap="round"
+                fill="none" stroke="#FFFFFF" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round"
               />
             ))}
 
