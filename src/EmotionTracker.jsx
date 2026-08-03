@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { auth, db, googleProvider } from './firebase';
+import BlackBoxCard from './BlackBoxCard';
 
 const VB_W = 1000;
 const VB_H = 380;
@@ -116,6 +117,7 @@ export default function EmotionTracker() {
 
   const total = daysInMonth(year, month);
   const isCurrentMonth = year === today.getFullYear() && month === today.getMonth();
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
   useEffect(() => onAuthStateChanged(auth, (nextUser) => {
     setUser(nextUser);
@@ -555,6 +557,11 @@ export default function EmotionTracker() {
             </div>
           )}
         </div>
+
+        <BlackBoxCard
+          enabled={Boolean(isCurrentMonth && entries[today.getDate()] !== undefined)}
+          todayKey={todayKey}
+        />
       </div>
     </div>
   );
