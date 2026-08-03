@@ -32,9 +32,18 @@ function localMonthKey(year, month) {
 function normalizeEntries(value) {
   return Object.fromEntries(
     Object.entries(value || {})
-      .map(([day, rating]) => [String(Number(day)), Number(rating)])
-      .filter(([day, rating]) => Number(day) >= 1 && Number(day) <= 31 && rating >= 1 && rating <= 10),
+      .map(([day, entry]) => {
+        const rating = typeof entry === 'number' ? entry : Number(entry?.rating);
+        const rawNote = typeof entry === 'object' && entry !== null ? entry.note : '';
+        const note = typeof rawNote === 'string' ? rawNote.slice(0, 200) : '';
+        return [String(Number(day)), { rating, note }];
+      })
+      .filter(([day, entry]) => Number(day) >= 1 && Number(day) <= 31 && entry.rating >= 1 && entry.rating <= 10),
   );
+}
+
+function entryRating(entry) {
+  return entry?.rating;
 }
 
 function xForDay(day, total) {
@@ -47,18 +56,6 @@ function yForRating(rating) {
   return PAD_T + CHART_H - ((r - 1) / 9) * CHART_H;
 }
 
-function ratingForY(svgY) {
-  const clampedY = Math.min(PAD_T + CHART_H, Math.max(PAD_T, svgY));
-  const ratio = (PAD_T + CHART_H - clampedY) / CHART_H;
-  return Math.round(1 + ratio * 9);
-}
-
-function dayForX(svgX, total) {
-  if (total <= 1) return 1;
-  const clampedX = Math.min(PAD_L + CHART_W, Math.max(PAD_L, svgX));
-  const ratio = (clampedX - PAD_L) / CHART_W;
-  return Math.min(total, Math.max(1, Math.round(ratio * (total - 1)) + 1));
-}
 
 function buildSmoothPath(points) {
   if (points.length < 2) return '';
@@ -104,6 +101,7 @@ export default function EmotionTracker() {
   const [exporting, setExporting] = useState(false);
   const svgRef = useRef(null);
   const chipRefs = useRef({});
+  const hasUserEditedRef = useRef(false);
 
   const total = daysInMonth(year, month);
   const isCurrentMonth = year === today.getFullYear() && month === today.getMonth();
@@ -118,6 +116,7 @@ export default function EmotionTracker() {
     let cancelled = false;
     setLoading(true);
     setSelectedDay(null);
+    hasUserEditedRef.current = false;
     (async () => {
       try {
         if (user) {
@@ -146,7 +145,7 @@ export default function EmotionTracker() {
   }, [authReady, user, year, month]);
 
   useEffect(() => {
-    if (loading || !authReady) return undefined;
+    if (loading || !authReady || !hasUserEditedRef.current) return undefined;
     const data = normalizeEntries(entries);
     const handle = setTimeout(async () => {
       try {
@@ -190,44 +189,32 @@ export default function EmotionTracker() {
   const days = useMemo(() => Array.from({ length: total }, (_, i) => i + 1), [total]);
   const segments = useMemo(() => groupConsecutive(days, entries), [days, entries]);
 
-  const svgPointFromEvent = useCallback((e) => {
-    const svg = svgRef.current;
-    const rect = svg.getBoundingClientRect();
-    const scaleX = VB_W / rect.width;
-    const scaleY = VB_H / rect.height;
-    return {
-      x: (e.clientX - rect.left) * scaleX,
-      y: (e.clientY - rect.top) * scaleY,
-    };
-  }, []);
-
-  const handlePointerDown = useCallback((e) => {
-    e.target.setPointerCapture(e.pointerId);
-    const { x, y } = svgPointFromEvent(e);
-    const day = dayForX(x, total);
-    const rating = ratingForY(y);
-    setSelectedDay(day);
-    setEntries(prev => ({ ...prev, [day]: rating }));
-  }, [svgPointFromEvent, total]);
-
-  const handlePointerMove = useCallback((e) => {
-    if (e.pointerType === 'mouse' && e.buttons !== 1) return;
-    const { x, y } = svgPointFromEvent(e);
-    const day = dayForX(x, total);
-    const rating = ratingForY(y);
-    setSelectedDay(day);
-    setEntries(prev => (prev[day] === rating ? prev : { ...prev, [day]: rating }));
-  }, [svgPointFromEvent, total]);
 
   const selectDay = useCallback((day) => {
     setSelectedDay(day);
-    setEntries(prev => (prev[day] !== undefined ? prev : { ...prev, [day]: 5 }));
   }, []);
 
   const handleSliderChange = useCallback((e) => {
     if (selectedDay === null) return;
     const rating = Number(e.target.value);
-    setEntries(prev => ({ ...prev, [selectedDay]: rating }));
+    hasUserEditedRef.current = true;
+    setEntries(prev => ({
+      ...prev,
+      [selectedDay]: { rating, note: prev[selectedDay]?.note || '' },
+    }));
+  }, [selectedDay]);
+
+  const handleNoteChange = useCallback((e) => {
+    if (selectedDay === null) return;
+    const note = e.target.value.slice(0, 200);
+    setEntries(prev => {
+      if (prev[selectedDay] === undefined) return prev;
+      hasUserEditedRef.current = true;
+      return {
+        ...prev,
+        [selectedDay]: { rating: prev[selectedDay].rating, note },
+      };
+    });
   }, [selectedDay]);
 
   const signIn = useCallback(async () => {
@@ -250,6 +237,7 @@ export default function EmotionTracker() {
 
   const clearSelected = useCallback(() => {
     if (selectedDay === null) return;
+    hasUserEditedRef.current = true;
     setEntries(prev => {
       const copy = { ...prev };
       delete copy[selectedDay];
@@ -315,7 +303,7 @@ export default function EmotionTracker() {
 
   const loggedCount = Object.keys(entries).length;
   const avg = loggedCount
-    ? (Object.values(entries).reduce((a, b) => a + b, 0) / loggedCount).toFixed(1)
+    ? (Object.values(entries).reduce((a, entry) => a + entry.rating, 0) / loggedCount).toFixed(1)
     : null;
 
   const tickDays = useMemo(() => {
@@ -327,7 +315,7 @@ export default function EmotionTracker() {
 
   const selectedX = selectedDay !== null ? xForDay(selectedDay, total) : null;
   const selectedY = selectedDay !== null && entries[selectedDay] !== undefined
-    ? yForRating(entries[selectedDay])
+    ? yForRating(entryRating(entries[selectedDay]))
     : null;
   const bandWidth = CHART_W / Math.max(total - 1, 1);
 
@@ -339,7 +327,6 @@ export default function EmotionTracker() {
         .et-nav-btn:hover { background: #FFFFFF; color: #000000; }
         .et-nav-btn:active { transform: scale(0.9); }
         .et-nav-btn:focus-visible { outline: 2px solid #FFFFFF; outline-offset: 2px; }
-        .et-chart-hit { cursor: crosshair; touch-action: none; }
         .et-fade { transition: opacity 0.3s ease; }
         .et-chip-row { display: flex; gap: 6px; overflow-x: auto; padding: 4px 2px 10px 2px; scrollbar-width: thin; }
         .et-chip-row::-webkit-scrollbar { height: 4px; }
@@ -447,7 +434,7 @@ export default function EmotionTracker() {
             {segments.map((seg, i) => (
               <path
                 key={i}
-                d={buildSmoothPath(seg.map(d => ({ x: xForDay(d, total), y: yForRating(entries[d]) })))}
+                d={buildSmoothPath(seg.map(d => ({ x: xForDay(d, total), y: yForRating(entryRating(entries[d])) })))}
                 fill="none" stroke="#FFFFFF" strokeWidth={2.5} strokeLinecap="round"
               />
             ))}
@@ -458,7 +445,7 @@ export default function EmotionTracker() {
 
             {days.map(d => {
               const hasEntry = entries[d] !== undefined;
-              const y = hasEntry ? yForRating(entries[d]) : PAD_T + CHART_H;
+              const y = hasEntry ? yForRating(entryRating(entries[d])) : PAD_T + CHART_H;
               const isSelected = selectedDay === d;
               return (
                 <circle
@@ -476,18 +463,11 @@ export default function EmotionTracker() {
               <g>
                 <rect x={selectedX - 14} y={selectedY - 28} width={28} height={20} rx={3} fill="#FFFFFF" />
                 <text x={selectedX} y={selectedY - 14} textAnchor="middle" style={styles.chipLabel}>
-                  {entries[selectedDay]}
+                  {entryRating(entries[selectedDay])}
                 </text>
               </g>
             )}
 
-            <rect
-              className="et-chart-hit"
-              x={PAD_L} y={PAD_T} width={CHART_W} height={CHART_H}
-              fill="transparent"
-              onPointerDown={handlePointerDown}
-              onPointerMove={handlePointerMove}
-            />
           </svg>
         </div>
 
@@ -507,7 +487,7 @@ export default function EmotionTracker() {
                 className="et-chip"
                 style={chipStyle}
                 onClick={() => selectDay(d)}
-                aria-label={`Day ${d}${hasEntry ? `, rated ${entries[d]}` : ', not logged'}`}
+                aria-label={`Day ${d}${hasEntry ? `, rated ${entryRating(entries[d])}` : ', not logged'}`}
               >
                 {d}
               </button>
@@ -517,7 +497,7 @@ export default function EmotionTracker() {
 
         <div style={styles.panel}>
           {selectedDay === null ? (
-            <div style={styles.panelPlaceholder}>Choose a day above, or drag on the grid</div>
+            <div style={styles.panelPlaceholder}>Choose a day above</div>
           ) : (
             <div>
               <div style={styles.panelHeader}>
@@ -528,12 +508,22 @@ export default function EmotionTracker() {
                 <input
                   type="range" min={1} max={10} step={1}
                   className="et-slider"
-                  value={entries[selectedDay] ?? 5}
+                  value={entryRating(entries[selectedDay]) ?? 5}
                   onChange={handleSliderChange}
                   aria-label={`Emotion rating for day ${selectedDay}`}
                 />
-                <span style={styles.ratingNum}>{entries[selectedDay] ?? '–'}</span>
+                <span style={styles.ratingNum}>{entryRating(entries[selectedDay]) ?? '–'}</span>
               </div>
+              <textarea
+                style={styles.noteInput}
+                value={entries[selectedDay]?.note || ''}
+                onChange={handleNoteChange}
+                maxLength={200}
+                placeholder={entries[selectedDay] === undefined ? "Set a rating to add a note" : "Optional note (200 characters max)"}
+                disabled={entries[selectedDay] === undefined}
+                aria-label={`Optional note for day ${selectedDay}`}
+              />
+              <div style={styles.noteCount}>{(entries[selectedDay]?.note || '').length}/200</div>
               {entries[selectedDay] !== undefined && (
                 <button className="et-clear-btn" style={styles.clearBtn} onClick={clearSelected}>Clear entry</button>
               )}
@@ -565,12 +555,14 @@ const styles = {
   chipLogged: { background: 'rgba(255,255,255,0.12)', color: '#FFFFFF', borderColor: '#FFFFFF' },
   chipEmpty: { background: 'transparent', color: 'rgba(255,255,255,0.4)', borderColor: 'rgba(255,255,255,0.25)' },
   hint: { fontSize: 12, color: '#8C8C8C', textAlign: 'center', marginTop: 10, marginBottom: 18 },
-  panel: { minHeight: 96, border: '1.5px solid #FFFFFF', borderRadius: 0, padding: 20, background: 'transparent', marginTop: 6 },
+  panel: { border: '1.5px solid #FFFFFF', borderRadius: 0, padding: 20, background: 'transparent', marginTop: 6 },
   panelPlaceholder: { fontSize: 13, color: '#8C8C8C', textAlign: 'center' },
   panelHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 },
   panelDay: { fontSize: 13, fontWeight: 700, color: '#FFFFFF', letterSpacing: '0.06em' },
   closeBtn: { border: 'none', background: 'none', fontSize: 20, color: '#FFFFFF', cursor: 'pointer', lineHeight: 1 },
   sliderRow: { display: 'flex', alignItems: 'center', gap: 16 },
   ratingNum: { fontSize: 24, fontWeight: 700, color: '#FFFFFF', minWidth: 26, textAlign: 'right' },
+  noteInput: { width: '100%', minHeight: 70, marginTop: 16, border: '1.5px solid #FFFFFF', borderRadius: 0, padding: 10, background: 'transparent', color: '#FFFFFF', fontSize: 13, resize: 'vertical', outline: 'none' },
+  noteCount: { marginTop: 6, fontSize: 11, color: '#8C8C8C', textAlign: 'right' },
   clearBtn: { marginTop: 12, border: 'none', background: 'none', fontSize: 12, color: '#FFFFFF', textDecoration: 'underline', cursor: 'pointer', padding: 0 },
 };
