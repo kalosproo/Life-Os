@@ -9,9 +9,10 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == userId;
     }
 
-    function validEmotionEntry(entry) {
+    function validEntry(entry) {
       return entry is map
         && entry.keys().hasOnly(['rating', 'note'])
+        && 'rating' in entry
         && entry.rating is int
         && entry.rating >= 1
         && entry.rating <= 10
@@ -26,37 +27,37 @@ service cloud.firestore {
           '11', '12', '13', '14', '15', '16', '17', '18', '19', '20',
           '21', '22', '23', '24', '25', '26', '27', '28', '29', '30', '31'
         ])
-        && (!('1' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['1']))
-        && (!('2' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['2']))
-        && (!('3' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['3']))
-        && (!('4' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['4']))
-        && (!('5' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['5']))
-        && (!('6' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['6']))
-        && (!('7' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['7']))
-        && (!('8' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['8']))
-        && (!('9' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['9']))
-        && (!('10' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['10']))
-        && (!('11' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['11']))
-        && (!('12' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['12']))
-        && (!('13' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['13']))
-        && (!('14' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['14']))
-        && (!('15' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['15']))
-        && (!('16' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['16']))
-        && (!('17' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['17']))
-        && (!('18' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['18']))
-        && (!('19' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['19']))
-        && (!('20' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['20']))
-        && (!('21' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['21']))
-        && (!('22' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['22']))
-        && (!('23' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['23']))
-        && (!('24' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['24']))
-        && (!('25' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['25']))
-        && (!('26' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['26']))
-        && (!('27' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['27']))
-        && (!('28' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['28']))
-        && (!('29' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['29']))
-        && (!('30' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['30']))
-        && (!('31' in request.resource.data.entries) || validEmotionEntry(request.resource.data.entries['31']));
+        && (!('1' in request.resource.data.entries) || validEntry(request.resource.data.entries['1']))
+        && (!('2' in request.resource.data.entries) || validEntry(request.resource.data.entries['2']))
+        && (!('3' in request.resource.data.entries) || validEntry(request.resource.data.entries['3']))
+        && (!('4' in request.resource.data.entries) || validEntry(request.resource.data.entries['4']))
+        && (!('5' in request.resource.data.entries) || validEntry(request.resource.data.entries['5']))
+        && (!('6' in request.resource.data.entries) || validEntry(request.resource.data.entries['6']))
+        && (!('7' in request.resource.data.entries) || validEntry(request.resource.data.entries['7']))
+        && (!('8' in request.resource.data.entries) || validEntry(request.resource.data.entries['8']))
+        && (!('9' in request.resource.data.entries) || validEntry(request.resource.data.entries['9']))
+        && (!('10' in request.resource.data.entries) || validEntry(request.resource.data.entries['10']))
+        && (!('11' in request.resource.data.entries) || validEntry(request.resource.data.entries['11']))
+        && (!('12' in request.resource.data.entries) || validEntry(request.resource.data.entries['12']))
+        && (!('13' in request.resource.data.entries) || validEntry(request.resource.data.entries['13']))
+        && (!('14' in request.resource.data.entries) || validEntry(request.resource.data.entries['14']))
+        && (!('15' in request.resource.data.entries) || validEntry(request.resource.data.entries['15']))
+        && (!('16' in request.resource.data.entries) || validEntry(request.resource.data.entries['16']))
+        && (!('17' in request.resource.data.entries) || validEntry(request.resource.data.entries['17']))
+        && (!('18' in request.resource.data.entries) || validEntry(request.resource.data.entries['18']))
+        && (!('19' in request.resource.data.entries) || validEntry(request.resource.data.entries['19']))
+        && (!('20' in request.resource.data.entries) || validEntry(request.resource.data.entries['20']))
+        && (!('21' in request.resource.data.entries) || validEntry(request.resource.data.entries['21']))
+        && (!('22' in request.resource.data.entries) || validEntry(request.resource.data.entries['22']))
+        && (!('23' in request.resource.data.entries) || validEntry(request.resource.data.entries['23']))
+        && (!('24' in request.resource.data.entries) || validEntry(request.resource.data.entries['24']))
+        && (!('25' in request.resource.data.entries) || validEntry(request.resource.data.entries['25']))
+        && (!('26' in request.resource.data.entries) || validEntry(request.resource.data.entries['26']))
+        && (!('27' in request.resource.data.entries) || validEntry(request.resource.data.entries['27']))
+        && (!('28' in request.resource.data.entries) || validEntry(request.resource.data.entries['28']))
+        && (!('29' in request.resource.data.entries) || validEntry(request.resource.data.entries['29']))
+        && (!('30' in request.resource.data.entries) || validEntry(request.resource.data.entries['30']))
+        && (!('31' in request.resource.data.entries) || validEntry(request.resource.data.entries['31']));
     }
 
     match /users/{userId}/emotionMonths/{monthId} {
