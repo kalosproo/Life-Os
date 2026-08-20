@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { onAuthStateChanged, signInWithPopup, signOut } from 'firebase/auth';
+import { getRedirectResult, onAuthStateChanged, signInWithRedirect, signOut } from 'firebase/auth';
 import { doc, getDoc, serverTimestamp, setDoc } from 'firebase/firestore';
 import { auth, db, googleProvider } from './firebase';
 import BlackBoxCard from './BlackBoxCard';
@@ -119,10 +119,32 @@ export default function EmotionTracker() {
   const isCurrentMonth = year === today.getFullYear() && month === today.getMonth();
   const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 
-  useEffect(() => onAuthStateChanged(auth, (nextUser) => {
-    setUser(nextUser);
-    setAuthReady(true);
-  }), []);
+  useEffect(() => {
+    let cancelled = false;
+    let unsubscribe;
+
+    (async () => {
+      try {
+        await getRedirectResult(auth);
+      } catch (e) {
+        console.error('Google redirect sign-in failed', e);
+        if (!cancelled) {
+          setSyncStatus(`Sync failed: ${e.code || e.message || 'auth/redirect-failed'}`);
+        }
+      } finally {
+        if (cancelled) return;
+        unsubscribe = onAuthStateChanged(auth, (nextUser) => {
+          setUser(nextUser);
+          setAuthReady(true);
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      if (unsubscribe) unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     if (!authReady) return undefined;
@@ -136,7 +158,7 @@ export default function EmotionTracker() {
           const snap = await getDoc(doc(db, 'users', user.uid, 'emotionMonths', monthKey(year, month)));
           if (!cancelled) {
             setEntries(snap.exists() ? normalizeEntries(snap.data().entries) : {});
-            setSyncStatus('Synced with Firestore');
+            setSyncStatus('Synced ✓');
           }
         } else {
           const raw = window.localStorage.getItem(localMonthKey(year, month));
@@ -148,7 +170,8 @@ export default function EmotionTracker() {
       } catch (e) {
         if (!cancelled) {
           setEntries({});
-          setSyncStatus('Unable to load saved data');
+          console.error('Failed to load emotion month from storage', e);
+          setSyncStatus(`Sync failed: ${e.code || e.message || 'load-failed'}`);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -163,17 +186,19 @@ export default function EmotionTracker() {
     const handle = setTimeout(async () => {
       try {
         if (user) {
+          setSyncStatus('Syncing…');
           await setDoc(doc(db, 'users', user.uid, 'emotionMonths', monthKey(year, month)), {
             entries: data,
             updatedAt: serverTimestamp(),
           }, { merge: true });
-          setSyncStatus('Synced with Firestore');
+          setSyncStatus('Synced ✓');
         } else {
           window.localStorage.setItem(localMonthKey(year, month), JSON.stringify(data));
           setSyncStatus('Saved on this device');
         }
       } catch (e) {
-        setSyncStatus('Sync failed — changes kept on screen');
+        console.error('Failed to sync emotion month to Firestore', e);
+        setSyncStatus(`Sync failed: ${e.code || e.message || 'unknown-error'}`);
       }
     }, 350);
     return () => clearTimeout(handle);
@@ -233,7 +258,7 @@ export default function EmotionTracker() {
   const signIn = useCallback(async () => {
     setAuthBusy(true);
     try {
-      await signInWithPopup(auth, googleProvider);
+      await signInWithRedirect(auth, googleProvider);
     } finally {
       setAuthBusy(false);
     }
